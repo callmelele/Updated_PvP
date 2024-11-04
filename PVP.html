@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phaser Scaled Game</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            physics: {
+                default: 'arcade',
+                arcade: {
+                    gravity: { y: 900 },
+                    debug: false,
+                    fps: 20,
+                }
+            },
+            scale: {
+                mode: Phaser.Scale.RESIZE,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            },
+            scene: {
+                preload,
+                create,
+                update
+            }
+        };
+
+        let socket;
+        const game = new Phaser.Game(config);
+        let player1, player2, platforms, sky, cursors;
+        let playerId; 
+        let positionUpdateInterval;
+        let SuperAnim = false;
+        let resizeTimeout;
+        let meleeCooldown = false;
+        let melee = false;
+
+        let player1Health = 3;
+        let player2Health = 3;
+
+        function preload() {
+            this.load.image('platform', 'assets/platform1.png');
+            this.load.image('platform2', 'assets/platform2.png');
+            this.load.image('sky', 'assets/sky.jpg');
+            this.load.spritesheet('Animations', 'assets/Animations2.png', { frameWidth: 115, frameHeight: 125 });
+        }
+
+        function create() {
+            setupWebSocket.call(this);
+            setupBackground.call(this);
+            setupPlatforms.call(this);
+            setupPlayers.call(this);
+            setupAnimations.call(this);
+            setupControls.call(this);
+            setupPositionUpdate.call(this);
+        }
+
+        function setupWebSocket() {
+            socket = new WebSocket('ws://localhost:3000');
+            socket.onopen = () => console.log("WebSocket connection established");
+            socket.onerror = (error) => console.error("WebSocket error observed:", error);
+            socket.onmessage = handleWebSocketMessage.bind(this);
+        }
+
+        function handleWebSocketMessage(event) {
+            const reader = new FileReader();
+            const dataHandler = (text) => {
+                try {
+                    const data = JSON.parse(text);
+                    handleData.call(this, data);
+                } catch (error) {
+                    console.error("Error parsing WebSocket message:", error);
+                }
+            };
+
+            if (event.data instanceof Blob) {
+                reader.onload = () => dataHandler(reader.result);
+                reader.readAsText(event.data);
+            } else {
+                dataHandler(event.data);
+            }
+        }
+
+        function setupBackground() {
+            sky = this.add.tileSprite(0, 0, window.innerWidth, window.innerHeight, 'sky').setOrigin(0, 0).setScrollFactor(0);
+        }
+
+        function setupPlatforms() {
+            platforms = this.physics.add.staticGroup();
+            platforms.create(850, 920, 'platform').refreshBody();
+            platforms.create(250, 650, 'platform2').refreshBody();
+            platforms.create(1450, 650, 'platform2').refreshBody();
+            platforms.create(950, 400, 'platform').setDisplaySize(800, 100).refreshBody();
+        }
+
+        function setupPlayers() {
+            player1 = createPlayer.call(this, 350, 450);
+            player2 = createPlayer.call(this, 1550, 450);
+        }
+
+        function createPlayer(x, y) {
+            const player = this.physics.add.sprite(x, y, 'Animations').setCollideWorldBounds(true).setScale(0.8);
+            this.physics.add.collider(player, platforms);
+            console.log(`Player created at: (${x}, ${y})`); 
+            return player;
+        }
+
+        function setupAnimations() {
+            this.anims.create({ key: "idle", frames: this.anims.generateFrameNumbers('Animations', { start: 0, end: 0 }) });
+            this.anims.create({ key: 'walk', frames: this.anims.generateFrameNumbers('Animations', { start: 0, end: 3 }), frameRate: 8, repeat: -1 });
+            this.anims.create({ key: "chargeUp", frames: this.anims.generateFrameNumbers("Animations", { start: 4, end: 11}), frameRate: 2, repeat: 1});
+            this.anims.create({ key: "melee", frames: this.anims.generateFrameNumbers("Animations", { start: 12, end: 14}), frameRate: 6, repeat: 1});
+        }
+
+        function setupControls() {
+            cursors = this.input.keyboard.addKeys({
+                up: Phaser.Input.Keyboard.KeyCodes.W,
+                left: Phaser.Input.Keyboard.KeyCodes.A,
+                down: Phaser.Input.Keyboard.KeyCodes.S,
+                right: Phaser.Input.Keyboard.KeyCodes.D,
+                melee: Phaser.Input.Keyboard.KeyCodes.E,
+                superAttack: Phaser.Input.Keyboard.KeyCodes.F  
+            });
+            this.physics.world.setBounds(0, 0, 2000, window.innerHeight);
+        }
+
+        function setupPositionUpdate() {
+            positionUpdateInterval = setInterval(() => {
+                if (playerId) {
+                    sendPlayerPosition(playerId === 'player1' ? player1 : player2, playerId);
+                }
+            }, 200);
+        }
+
+        function handleData(data) {
+            if (data.type === "init") {
+                playerId = data.id;
+                console.log("You are player: " + playerId);
+            } else if (data.type === "move") {
+                updatePlayerPosition(data.id, data.x, data.y);
+                updatePlayerAnimation(data.id, data.animation, data.flipX); 
+            }
+        }
+        
+        function updatePlayerPosition(id, x, y) {
+            if (id === "player1") {
+                player1.setPosition(Math.round(x), Math.round(y));
+            } else if (id === "player2") {
+                player2.setPosition(Math.round(x), Math.round(y));
+            }
+        }
+        
+        function updatePlayerAnimation(id, animation, flipX) {
+            let player = id === "player1" ? player1 : player2;
+            player.anims.play(animation, true);
+            player.flipX = flipX; 
+        }
+        
+
+        function update() {
+            if (sky) {
+                sky.tilePositionX += 0.4; 
+                if (playerId) {
+                    handlePlayerControls(playerId === 'player1' ? player1 : player2);
+                }
+            }
+        }
+
+        function handlePlayerControls(player) {
+            if (cursors.left.isDown && !cursors.superAttack.isDown && !melee) {
+                player.setVelocityX(-160).anims.play("walk", true).flipX = true;
+                sendPlayerPosition(player, playerId); 
+            } else if (cursors.right.isDown && !cursors.superAttack.isDown && !melee) {
+                player.setVelocityX(160).anims.play("walk", true).flipX = false;
+                sendPlayerPosition(player, playerId); 
+            } else if (player.body.touching.down && !cursors.superAttack.isDown && !melee) {
+                player.setVelocityX(0).anims.play("idle");
+                sendPlayerPosition(player, playerId); 
+            }
+        
+            if (cursors.superAttack.isDown && !melee) {
+                player.setVelocityX(0).anims.play("chargeUp", true);
+                sendPlayerPosition(player, playerId);
+            }
+        
+            if (cursors.melee.isDown && !meleeCooldown) {
+                melee = true;
+                meleeCooldown = true; 
+                player.setVelocityX(0).anims.play("melee", true);
+                handleMeleeAttack(player);
+                sendPlayerPosition(player, playerId);
+        
+                setTimeout(() => {
+                    meleeCooldown = false;
+                    melee = false
+                }, 500);
+            }
+        
+            if (cursors.up.isDown && player.body.touching.down && !melee) {
+                player.setVelocityY(-700);
+                sendPlayerPosition(player, playerId); 
+            }
+        }
+        
+
+        function handleMeleeAttack(attackingPlayer) {
+            let opponentPlayer = (playerId === 'player1') ? player2 : player1; 
+        
+            let distance = Phaser.Math.Distance.Between(attackingPlayer.x, attackingPlayer.y, opponentPlayer.x, opponentPlayer.y);
+            let facingOpponent = (attackingPlayer.flipX && opponentPlayer.x < attackingPlayer.x) || 
+                                 (!attackingPlayer.flipX && opponentPlayer.x > attackingPlayer.x);
+        
+            if (distance < 100 && facingOpponent) {
+                takeDamage(playerId === 'player1' ? 'player2' : 'player1'); 
+            }
+        }
+
+        function takeDamage(playerId) {
+            if (playerId === 'player1') {
+                player1Health -= 1;
+                console.log("Player 1 has lost 1 health point!");
+                console.log(`Player 1 Health: ${player1Health}`);
+                if (player1Health <= 0) {
+                    console.log("Player 1 has been defeated!");
+                }
+            } else if (playerId === 'player2') {
+                player2Health -= 1;
+                console.log("Player 2 has lost 1 health point!");
+                console.log(`Player 2 Health: ${player2Health}`);
+                if (player2Health <= 0) {
+                    console.log("Player 2 has been defeated!");
+                }
+            }
+        }
+
+        function sendPlayerPosition(player, playerName) {
+            const animation = player.anims.currentAnim ? player.anims.currentAnim.key : "idle";
+            const flipX = player.flipX;
+        
+            socket.send(JSON.stringify({
+                type: "move",
+                id: playerName,
+                x: Math.round(player.x),
+                y: Math.round(player.y),
+                animation: animation,
+                flipX: flipX
+            }));
+        }
+        
+
+        window.addEventListener('beforeunload', () => clearInterval(positionUpdateInterval));
+    </script>
+</body>
+</html>
