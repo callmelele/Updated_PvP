@@ -68,7 +68,7 @@
         }
 
         function setupWebSocket() {
-            socket = new WebSocket('ws://localhost:3000');
+            socket = new WebSocket('ws://10.71.203.102:3000');
             socket.onopen = () => console.log("WebSocket connection established");
             socket.onerror = (error) => console.error("WebSocket error observed:", error);
             socket.onmessage = handleWebSocketMessage.bind(this);
@@ -189,6 +189,7 @@
                 player.setVelocityX(0).anims.play("idle");
                 sendPlayerPosition(player, playerId); 
             }
+            
         
             if (cursors.superAttack.isDown && !melee) {
                 player.setVelocityX(0).anims.play("chargeUp", true);
@@ -200,7 +201,6 @@
                 meleeCooldown = true; 
                 player.setVelocityX(0).anims.play("melee", true);
                 handleMeleeAttack(player);
-                sendPlayerPosition(player, playerId);
         
                 setTimeout(() => {
                     meleeCooldown = false;
@@ -248,6 +248,7 @@
         function sendPlayerPosition(player, playerName) {
             const animation = player.anims.currentAnim ? player.anims.currentAnim.key : "idle";
             const flipX = player.flipX;
+            let health = (playerName === 'player1') ? player2Health : player1Health;
         
             socket.send(JSON.stringify({
                 type: "move",
@@ -255,9 +256,11 @@
                 x: Math.round(player.x),
                 y: Math.round(player.y),
                 animation: animation,
-                flipX: flipX
+                flipX: flipX,
+                EnemyHealth: health
             }));
         }
+
         
 
         window.addEventListener('beforeunload', () => clearInterval(positionUpdateInterval));
