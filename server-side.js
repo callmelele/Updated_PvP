@@ -1,10 +1,10 @@
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 3000 });
+const ws = new WebSocket.Server({ port: 3000 });
 
 let clientCount = 0;
 const clients = [];
 
-wss.on('connection', function connection(ws) {
+ws.on('connection', function connection(ws) {
     const playerId = `player${++clientCount}`;
     ws.playerId = playerId;
 
