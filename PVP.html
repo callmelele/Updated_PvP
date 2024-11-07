@@ -68,7 +68,7 @@
         }
 
         function setupWebSocket() {
-            socket = new WebSocket('ws://10.71.203.102:3000');
+            socket = new WebSocket('ws://localhost:3000');
             socket.onopen = () => console.log("WebSocket connection established");
             socket.onerror = (error) => console.error("WebSocket error observed:", error);
             socket.onmessage = handleWebSocketMessage.bind(this);
@@ -84,7 +84,7 @@
                     console.error("Error parsing WebSocket message:", error);
                 }
             };
-
+        
             if (event.data instanceof Blob) {
                 reader.onload = () => dataHandler(reader.result);
                 reader.readAsText(event.data);
@@ -92,6 +92,7 @@
                 dataHandler(event.data);
             }
         }
+        
 
         function setupBackground() {
             sky = this.add.tileSprite(0, 0, window.innerWidth, window.innerHeight, 'sky').setOrigin(0, 0).setScrollFactor(0);
@@ -111,7 +112,7 @@
         }
 
         function createPlayer(x, y) {
-            const player = this.physics.add.sprite(x, y, 'Animations').setCollideWorldBounds(true).setScale(0.8);
+            const player = this.physics.add.sprite(x, y, 'Animations').setCollideWorldBounds(true).setScale(0.7);
             this.physics.add.collider(player, platforms);
             console.log(`Player created at: (${x}, ${y})`); 
             return player;
@@ -120,8 +121,9 @@
         function setupAnimations() {
             this.anims.create({ key: "idle", frames: this.anims.generateFrameNumbers('Animations', { start: 0, end: 0 }) });
             this.anims.create({ key: 'walk', frames: this.anims.generateFrameNumbers('Animations', { start: 0, end: 3 }), frameRate: 8, repeat: -1 });
-            this.anims.create({ key: "chargeUp", frames: this.anims.generateFrameNumbers("Animations", { start: 4, end: 11}), frameRate: 2, repeat: 1});
-            this.anims.create({ key: "melee", frames: this.anims.generateFrameNumbers("Animations", { start: 12, end: 14}), frameRate: 6, repeat: 1});
+            this.anims.create({ key: "chargeUp", frames: this.anims.generateFrameNumbers("Animations", { start: 4, end: 11}), frameRate: 2, repeat: -1});
+            this.anims.create({ key: "melee", frames: this.anims.generateFrameNumbers("Animations", { start: 12, end: 14}), frameRate: 6, repeat: 0});
+            this.anims.create({ key: "teleport", frames: this.anims.generateFrameNumbers("Animations", { start: 4, end: 11}), frameRate: 4, repeat: 0 });
         }
 
         function setupControls() {
@@ -142,16 +144,6 @@
                     sendPlayerPosition(playerId === 'player1' ? player1 : player2, playerId);
                 }
             }, 200);
-        }
-
-        function handleData(data) {
-            if (data.type === "init") {
-                playerId = data.id;
-                console.log("You are player: " + playerId);
-            } else if (data.type === "move") {
-                updatePlayerPosition(data.id, data.x, data.y);
-                updatePlayerAnimation(data.id, data.animation, data.flipX); 
-            }
         }
         
         function updatePlayerPosition(id, x, y) {
@@ -227,6 +219,24 @@
             }
         }
 
+        function handleData(data) {
+            if (data.type === "init") {
+                playerId = data.id;
+                console.log("You are player: " + playerId);
+            } else if (data.type === "move") {
+                updatePlayerPosition(data.id, data.x, data.y);
+                updatePlayerAnimation(data.id, data.animation, data.flipX); 
+            } else if (data.type === "teleport") {
+                if (data.enemy === 'player1' && playerId === 'player1') {
+                    player1.setPosition(400, 200);
+                    console.log("Player 1 teleported to (400, 200)!");
+                } else if (data.enemy === 'player2' && playerId === 'player2') {
+                    player2.setPosition(400, 200);
+                    console.log("Player 2 teleported to (400, 200)!");
+                }
+            }
+        }
+        
         function takeDamage(playerId) {
             if (playerId === 'player1') {
                 player1Health -= 1;
@@ -234,6 +244,13 @@
                 console.log(`Player 1 Health: ${player1Health}`);
                 if (player1Health <= 0) {
                     console.log("Player 1 has been defeated!");
+        
+                    
+                    setTimeout(async () => {
+                        await playTeleportAnimation(player1);  
+                        socket.send(JSON.stringify({ type: 'teleport', enemy: 'player1' }));
+                        player1Health = 3;
+                    }, 2000);  
                 }
             } else if (playerId === 'player2') {
                 player2Health -= 1;
@@ -241,9 +258,26 @@
                 console.log(`Player 2 Health: ${player2Health}`);
                 if (player2Health <= 0) {
                     console.log("Player 2 has been defeated!");
+        
+
+                    setTimeout(async () => {
+                        await playTeleportAnimation(player2);  
+                        socket.send(JSON.stringify({ type: 'teleport', enemy: 'player2' }));
+                        player2Health = 3;
+                    }, 2000);  
                 }
             }
         }
+        
+        async function playTeleportAnimation(player) {
+            player.anims.play("teleport", true);  
+            await delay(2000);  
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        
 
         function sendPlayerPosition(player, playerName) {
             const animation = player.anims.currentAnim ? player.anims.currentAnim.key : "idle";
