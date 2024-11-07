@@ -18,11 +18,22 @@ ws.on('connection', function connection(ws) {
 
         const data = JSON.parse(message);
 
-        clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN && client !== ws) {
-                client.send(message);
-            }
-        });
+        if (data.type === 'teleport') {
+            clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN && client.playerId === data.enemy) {
+                    client.send(JSON.stringify({
+                        type: 'teleport',
+                        enemy: data.enemy
+                    }));
+                }
+            });
+        } else {
+            clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN && client !== ws) {
+                    client.send(message);
+                }
+            });
+        }
     });
 
     ws.on('close', function close() {
